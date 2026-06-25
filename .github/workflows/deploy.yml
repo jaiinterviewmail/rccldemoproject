@@ -35,8 +35,8 @@ jobs:
       - name: Upload Lambda Artifact
         run: |
           aws s3 cp \
-          target/rccldemoproject-0.0.1-SNAPSHOT-shaded.jar \
-          s3://${{ secrets.S3_BUCKET }}/lambda/java-lambda.jar
+          target/rccldemoproject-0.0.1-SNAPSHOT.jar \
+          s3://${{ secrets.S3_BUCKET }}/rccldemoproject-0.0.1-SNAPSHOT.jar
 
       - name: Deploy CloudFormation
         run: |
