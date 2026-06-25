@@ -11,7 +11,6 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-
       - name: Checkout
         uses: actions/checkout@v4
 
@@ -20,16 +19,40 @@ jobs:
         with:
           java-version: '17'
           distribution: 'temurin'
+          cache: maven
 
       - name: Build Lambda
         run: mvn clean package
 
       - name: Verify Target Folder
         run: |
-          echo "Generated Files:"
           ls -ltr target/
 
+      - name: Calculate JAR Hash
+        id: jarhash
+        run: |
+          HASH=$(sha256sum target/rccldemoproject-0.0.1-SNAPSHOT.jar | awk '{print $1}')
+          echo "hash=$HASH" >> $GITHUB_OUTPUT
+
+      - name: Restore JAR Cache
+        id: cache-jar
+        uses: actions/cache@v4
+        with:
+          path: .jar-cache
+          key: jar-${{ steps.jarhash.outputs.hash }}
+
+      - name: Check if Deployment Needed
+        id: deploy_check
+        run: |
+          if [ "${{ steps.cache-jar.outputs.cache-hit }}" = "true" ]; then
+            echo "deploy_required=false" >> $GITHUB_OUTPUT
+            echo "JAR unchanged. Skipping deployment."
+          else
+            echo "deploy_required=true" >> $GITHUB_OUTPUT
+          fi
+
       - name: Configure AWS Credentials
+        if: steps.deploy_check.outputs.deploy_required == 'true'
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
@@ -37,31 +60,42 @@ jobs:
           aws-region: ap-south-1
 
       - name: Create S3 Bucket If Not Exists
+        if: steps.deploy_check.outputs.deploy_required == 'true'
         run: |
           if ! aws s3api head-bucket --bucket ${{ secrets.S3_BUCKET }} 2>/dev/null; then
-            echo "Bucket does not exist. Creating..."
             aws s3 mb s3://${{ secrets.S3_BUCKET }} --region ap-south-1
-          else
-            echo "Bucket already exists."
           fi
 
       - name: Upload Lambda Artifact
+        if: steps.deploy_check.outputs.deploy_required == 'true'
         run: |
           aws s3 cp \
             target/rccldemoproject-0.0.1-SNAPSHOT.jar \
             s3://${{ secrets.S3_BUCKET }}/lambda/rccldemoproject-0.0.1-SNAPSHOT.jar
 
       - name: Deploy CloudFormation
+        if: steps.deploy_check.outputs.deploy_required == 'true'
         run: |
           aws cloudformation deploy \
             --template-file cloudformation/lambda-stack.yaml \
             --stack-name java-lambda-stack \
             --capabilities CAPABILITY_NAMED_IAM \
             --parameter-overrides \
-            LambdaCodeBucket=${{ secrets.S3_BUCKET }} \
-            LambdaCodeKey=lambda/rccldemoproject-0.0.1-SNAPSHOT.jar
+              LambdaCodeBucket=${{ secrets.S3_BUCKET }} \
+              LambdaCodeKey=lambda/rccldemoproject-0.0.1-SNAPSHOT.jar
+
+      - name: Save Deployment Cache
+        if: steps.deploy_check.outputs.deploy_required == 'true'
+        run: |
+          mkdir -p .jar-cache
+          echo "${{ steps.jarhash.outputs.hash }}" > .jar-cache/hash.txt
 
       - name: Verify Deployment
+        if: steps.deploy_check.outputs.deploy_required == 'true'
         run: |
           aws cloudformation describe-stacks \
             --stack-name java-lambda-stack
+
+      - name: Skip Message
+        if: steps.deploy_check.outputs.deploy_required == 'false'
+        run: echo "JAR unchanged. S3 upload and CloudFormation deployment skipped."
