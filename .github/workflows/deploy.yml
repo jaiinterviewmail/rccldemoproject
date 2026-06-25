@@ -1,0 +1,48 @@
+name: Deploy Java Lambda
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Build Lambda
+        run: mvn clean package
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Upload Lambda Artifact
+        run: |
+          aws s3 cp \
+          target/java-lambda-1.0.jar \
+          s3://${{ secrets.S3_BUCKET }}/lambda/java-lambda.jar
+
+      - name: Deploy CloudFormation
+        run: |
+          aws cloudformation deploy \
+            --template-file cloudformation/lambda-stack.yaml \
+            --stack-name java-lambda-stack \
+            --capabilities CAPABILITY_NAMED_IAM \
+            --parameter-overrides \
+            LambdaCodeBucket=${{ secrets.S3_BUCKET }} \
+            LambdaCodeKey=lambda/java-lambda.jar
