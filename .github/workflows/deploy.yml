@@ -50,7 +50,21 @@ jobs:
           else
             echo "deploy_required=true" >> $GITHUB_OUTPUT
           fi
-
+      - name: Debug AWS Configuration
+        run: |
+          echo "Region = ${{ secrets.AWS_REGION }}"
+      
+          if [ -z "${{ secrets.AWS_ACCESS_KEY_ID }}" ]; then
+            echo "ACCESS KEY NOT FOUND"
+            exit 1
+          fi
+      
+          if [ -z "${{ secrets.AWS_SECRET_ACCESS_KEY }}" ]; then
+            echo "SECRET KEY NOT FOUND"
+            exit 1
+          fi
+      
+          echo "All AWS secrets detected"
       - name: Configure AWS Credentials
         if: steps.deploy_check.outputs.deploy_required == 'true'
         uses: aws-actions/configure-aws-credentials@v4
