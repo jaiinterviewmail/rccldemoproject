@@ -4,13 +4,12 @@ on:
   push:
     branches:
       - master
-  workflow_dispatch:    
+  workflow_dispatch:
 
 jobs:
-
   deploy:
     runs-on: ubuntu-latest
-    environment: dev
+
     steps:
 
       - name: Checkout
@@ -25,6 +24,11 @@ jobs:
       - name: Build Lambda
         run: mvn clean package
 
+      - name: Verify Target Folder
+        run: |
+          echo "Generated Files:"
+          ls -ltr target/
+
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -32,11 +36,20 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ap-south-1
 
+      - name: Create S3 Bucket If Not Exists
+        run: |
+          if ! aws s3api head-bucket --bucket ${{ secrets.S3_BUCKET }} 2>/dev/null; then
+            echo "Bucket does not exist. Creating..."
+            aws s3 mb s3://${{ secrets.S3_BUCKET }} --region ap-south-1
+          else
+            echo "Bucket already exists."
+          fi
+
       - name: Upload Lambda Artifact
         run: |
           aws s3 cp \
-          target/rccldemoproject-0.0.1-SNAPSHOT.jar \
-          s3://${{ secrets.S3_BUCKET }}/rccldemoproject-0.0.1-SNAPSHOT.jar
+            target/rccldemoproject-0.0.1-SNAPSHOT.jar \
+            s3://${{ secrets.S3_BUCKET }}/lambda/rccldemoproject-0.0.1-SNAPSHOT.jar
 
       - name: Deploy CloudFormation
         run: |
@@ -46,4 +59,9 @@ jobs:
             --capabilities CAPABILITY_NAMED_IAM \
             --parameter-overrides \
             LambdaCodeBucket=${{ secrets.S3_BUCKET }} \
-            LambdaCodeKey=lambda/java-lambda.jar
+            LambdaCodeKey=lambda/rccldemoproject-0.0.1-SNAPSHOT.jar
+
+      - name: Verify Deployment
+        run: |
+          aws cloudformation describe-stacks \
+            --stack-name java-lambda-stack
